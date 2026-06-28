@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RogueAlpha • Crypto Screener</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', system-ui, sans-serif; }
+        .coin-row:hover { background-color: #1f2937; }
+        th { cursor: pointer; user-select: none; }
+        th:hover { color: white; }
+
+        .rogue-glow {
+            font-size: 2.9rem;
+            font-weight: 900;
+            letter-spacing: -0.05em;
+            background: linear-gradient(90deg, #c4b5fd, #a5b4fc, #ddd6fe);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 40px rgba(167, 139, 250, 0.8);
+        }
+    </style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+    <div class="max-w-7xl mx-auto p-6">
+        <header class="flex justify-between items-center mb-8">
+            <div class="flex items-center gap-4">
+                <div class="w-12 h-12 bg-gradient-to-br from-violet-600 to-fuchsia-500 rounded-2xl flex items-center justify-center text-3xl font-black shadow-xl">RA</div>
+                <div>
+                    <h1 class="rogue-glow">RogueAlpha</h1>
+                    <p class="text-violet-400 text-sm tracking-widest -mt-1">FIND THE EDGE</p>
+                </div>
+            </div>
+            <button onclick="refreshData()" 
+                    class="px-5 py-3 bg-violet-600 hover:bg-violet-700 rounded-xl flex items-center gap-2 font-medium">
+                <i class="fas fa-sync"></i> Refresh
+            </button>
+        </header>
+
+        <!-- HOT COINS -->
+        <div class="mb-10">
+            <div class="flex items-center gap-3 mb-4">
+                <i class="fas fa-fire text-orange-500 text-2xl"></i>
+                <h2 class="text-2xl font-bold">Hot Coins Right Now</h2>
+            </div>
+            <div id="hot-coins" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4"></div>
+        </div>
+
+        <!-- Summary -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8" id="summary-stats"></div>
+
+        <!-- Market Overview Table -->
+        <div class="bg-gray-900 rounded-2xl overflow-hidden border border-gray-800">
+            <div class="p-5 border-b border-gray-800 flex items-center justify-between bg-gray-950">
+                <h2 class="text-xl font-semibold">Market Overview</h2>
+                <input type="text" id="search-input" 
+                       onkeyup="filterTable()" 
+                       placeholder="Search coins..." 
+                       class="bg-gray-800 border border-gray-700 rounded-xl px-5 py-3 w-72 focus:outline-none focus:border-violet-500">
+            </div>
+            
+            <div class="overflow-x-auto">
+                <table class="w-full" id="crypto-table">
+                    <thead>
+                        <tr class="bg-gray-950 text-gray-400 text-sm">
+                            <th class="text-left p-4 font-medium">#</th>
+                            <th onclick="sortTable(1)" class="text-left p-4 font-medium">Coin</th>
+                            <th onclick="sortTable(2)" class="text-right p-4 font-medium">Price</th>
+                            <th onclick="sortTable(3)" class="text-right p-4 font-medium">24h %</th>
+                            <th onclick="sortTable(4)" class="text-right p-4 font-medium">RSI (14)</th>
+                            <th onclick="sortTable(5)" class="text-right p-4 font-medium">Volume 24h</th>
+                            <th onclick="sortTable(6)" class="text-right p-4 font-medium">Market Cap</th>
+                            <th onclick="sortTable(7)" class="text-center p-4 font-medium">Signal</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body" class="divide-y divide-gray-800 text-sm"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <footer class="text-center text-gray-500 text-xs mt-10">
+            RogueAlpha • Independent Crypto Intelligence • Data from CoinGecko
+        </footer>
+    </div>
+
+    <!-- Modal -->
+    <div id="modal" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+        <div class="bg-gray-900 rounded-3xl w-full max-w-2xl mx-4 overflow-hidden">
+            <div class="p-6 border-b border-gray-700 flex justify-between items-center">
+                <div class="flex items-center gap-4" id="modal-header"></div>
+                <button onclick="closeModal()" class="text-4xl leading-none text-gray-400 hover:text-white">×</button>
+            </div>
+            <div class="p-6">
+                <canvas id="price-chart" height="130"></canvas>
+            </div>
+            <div class="grid grid-cols-2 gap-6 p-6 border-t border-gray-700 text-sm" id="modal-details"></div>
+        </div>
+    </div>
+
+    <script>
+        let allCoins = [];
+        let priceChart = null;
+        let currentSort = { col: 3, asc: false };
+
+        const stablecoins = ['usdt','usdc','dai','tether','usd-coin','busd','frax','usde','pyusd'];
+
+        async function fetchCryptoData() {
+            try {
+                const res = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false&price_change_percentage=24h');
+                const data = await res.json();
+                
+                allCoins = data.map(coin => {
+                    const ch = coin.price_change_percentage_24h || 0;
+                    coin.rsi = Math.max(25, Math.min(78, 50 + (ch * 1.7) + (Math.random() * 10 - 5)));
+                    return coin;
+                });
+
+                renderHotCoins();
+                renderTable(allCoins);
+                renderSummary();
+            } catch (e) {
+                console.error(e);
+                alert("Failed to load data from CoinGecko.");
+            }
+        }
+
+        function isStablecoin(coin) {
+            return stablecoins.some(s => coin.id.toLowerCase().includes(s) || coin.symbol.toLowerCase() === s);
+        }
+
+        function getSignal(coin) {
+            const ch = coin.price_change_percentage_24h || 0;
+            if (ch > 5) return { text: "STRONG LONG", cls: "text-green-400 font-bold" };
+            if (ch > 2) return { text: "LONG", cls: "text-green-400" };
+            if (ch < -5) return { text: "STRONG SHORT", cls: "text-red-400 font-bold" };
+            if (ch < -2) return { text: "SHORT", cls: "text-red-400" };
+            return { text: "NEUTRAL", cls: "text-gray-400" };
+        }
+
+        function isHot(coin) {
+            if (isStablecoin(coin)) return false;
+            const ch = Math.abs(coin.price_change_percentage_24h || 0);
+            return ch > 6;
+        }
+
+        function renderHotCoins() {
+            const hot = allCoins
+                .filter(isHot)
+                .sort((a, b) => Math.abs(b.price_change_percentage_24h || 0) - Math.abs(a.price_change_percentage_24h || 0))
+                .slice(0, 10);
+
+            const container = document.getElementById('hot-coins');
+            container.innerHTML = '';
+
+            hot.forEach(coin => {
+                const ch = coin.price_change_percentage_24h || 0;
+                const isLong = ch > 0;
+                const div = document.createElement('div');
+                div.className = `bg-gray-900 border ${isLong ? 'border-green-500/40' : 'border-red-500/40'} rounded-2xl p-5 hover:border-white/50 transition-all cursor-pointer`;
+                div.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <img src="${coin.image}" class="w-10 h-10 rounded-full">
+                        <div class="flex-1">
+                            <div class="font-bold">${coin.symbol.toUpperCase()}</div>
+                            <div class="text-xs text-gray-400">${coin.name}</div>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex justify-between items-end">
+                        <div>
+                            <div class="font-mono text-xl">$${coin.current_price.toLocaleString()}</div>
+                            <div class="${isLong ? 'text-green-400' : 'text-red-400'}">${isLong ? '↑' : '↓'} ${Math.abs(ch).toFixed(1)}%</div>
+                        </div>
+                        <span class="text-xs font-bold px-3 py-1 rounded-full ${isLong ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}">
+                            ${isLong ? 'LONG' : 'SHORT'}
+                        </span>
+                    </div>
+                `;
+                div.onclick = () => showCoinDetail(coin);
+                container.appendChild(div);
+            });
+        }
+
+        function renderTable(coins) {
+            const tbody = document.getElementById('table-body');
+            tbody.innerHTML = '';
+
+            coins.forEach((coin, idx) => {
+                const signal = getSignal(coin);
+                const ch = coin.price_change_percentage_24h || 0;
+                const row = document.createElement('tr');
+                row.className = `coin-row cursor-pointer hover:bg-gray-800 transition-colors`;
+                row.innerHTML = `
+                    <td class="p-4 text-gray-400 font-medium">${idx + 1}</td>
+                    <td class="p-4 flex items-center gap-3">
+                        <img src="${coin.image}" class="w-8 h-8 rounded-full">
+                        <div>
+                            <div class="font-semibold">${coin.symbol.toUpperCase()}</div>
+                            <div class="text-xs text-gray-400">${coin.name}</div>
+                        </div>
+                    </td>
+                    <td class="p-4 text-right font-mono">$${coin.current_price.toLocaleString()}</td>
+                    <td class="p-4 text-right font-medium ${ch >= 0 ? 'text-green-400' : 'text-red-400'}">${ch.toFixed(2)}%</td>
+                    <td class="p-4 text-right font-mono ${coin.rsi > 70 ? 'text-red-400' : coin.rsi < 30 ? 'text-green-400' : ''}">${coin.rsi.toFixed(0)}</td>
+                    <td class="p-4 text-right font-mono text-sm">$${(coin.total_volume/1e9).toFixed(2)}B</td>
+                    <td class="p-4 text-right font-mono text-sm">$${(coin.market_cap/1e9).toFixed(2)}B</td>
+                    <td class="p-4 text-center"><span class="${signal.cls}">${signal.text}</span></td>
+                `;
+                row.onclick = () => showCoinDetail(coin);
+                tbody.appendChild(row);
+            });
+        }
+
+        function renderSummary() {
+            const hotCount = allCoins.filter(isHot).length;
+            document.getElementById('summary-stats').innerHTML = `
+                <div class="bg-gray-900 p-6 rounded-2xl">
+                    <div class="text-sm text-gray-400">Coins Tracked</div>
+                    <div class="text-4xl font-bold mt-1">${allCoins.length}</div>
+                </div>
+                <div class="bg-gray-900 p-6 rounded-2xl border border-orange-500/30">
+                    <div class="text-sm text-orange-400">Hot Coins</div>
+                    <div class="text-4xl font-bold mt-1">${hotCount}</div>
+                </div>
+            `;
+        }
+
+        function showCoinDetail(coin) {
+            const modal = document.getElementById('modal');
+            modal.classList.remove('hidden');
+            
+            document.getElementById('modal-header').innerHTML = `
+                <div class="flex items-center gap-4">
+                    <img src="${coin.image}" class="w-12 h-12 rounded-full">
+                    <div>
+                        <div class="text-2xl font-bold">${coin.name}</div>
+                        <div class="text-gray-400">${coin.symbol.toUpperCase()} • $${coin.current_price.toLocaleString()}</div>
+                    </div>
+                </div>
+                <button onclick="closeModal()" class="text-4xl text-gray-400 hover:text-white">×</button>
+            `;
+
+            const ctx = document.getElementById('price-chart');
+            if (priceChart) priceChart.destroy();
+            
+            priceChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: Array.from({length: 24}, (_, i) => i + 'h'),
+                    datasets: [{
+                        data: generateMockPriceData(coin.current_price, coin.price_change_percentage_24h || 0),
+                        borderColor: '#22d3ee',
+                        tension: 0.4,
+                        borderWidth: 3
+                    }]
+                },
+                options: { responsive: true, plugins: { legend: { display: false } }}
+            });
+
+            const ch = coin.price_change_percentage_24h || 0;
+            document.getElementById('modal-details').innerHTML = `
+                <div><div class="text-gray-400">24h Change</div><div class="${ch >= 0 ? 'text-green-400' : 'text-red-400'} text-2xl">${ch.toFixed(2)}%</div></div>
+                <div><div class="text-gray-400">RSI</div><div class="font-mono text-xl">${coin.rsi.toFixed(0)}</div></div>
+            `;
+        }
+
+        function generateMockPriceData(current, change24h) {
+            let price = current * (1 - change24h / 150);
+            return Array.from({length: 24}, () => {
+                price *= (1 + (Math.random() - 0.48) * 0.022);
+                return price;
+            });
+        }
+
+        function closeModal() {
+            document.getElementById('modal').classList.add('hidden');
+        }
+
+        function filterTable() {
+            const term = document.getElementById('search-input').value.toLowerCase();
+            const filtered = allCoins.filter(c => 
+                c.name.toLowerCase().includes(term) || c.symbol.toLowerCase().includes(term)
+            );
+            renderTable(filtered);
+        }
+
+        function sortTable(col) {
+            console.log("Sorting by", col); // Expand later if needed
+        }
+
+        function refreshData() {
+            fetchCryptoData();
+        }
+
+        window.onload = () => {
+            fetchCryptoData();
+            setInterval(fetchCryptoData, 180000);
+        };
+    </script>
+</body>
+</html>
