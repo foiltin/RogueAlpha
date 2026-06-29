@@ -8,7 +8,14 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <style>
-        body { font-family: 'Segoe UI', system-ui, sans-serif; }
+
+     body {
+            background-image: 
+     url('pppp.jpg');
+            background-repeat: repeat;
+        }
+    
+       body  { font-family: 'Segoe UI', system-ui, sans-serif; }
         .coin-row:hover { background-color: #1f2937; }
         th { cursor: pointer; user-select: none; position: relative; }
         th:hover { color: white; }
@@ -23,6 +30,15 @@
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             text-shadow: 0 0 35px rgba(167, 139, 250, 0.6);
+        }
+
+        .strong-glow {
+            box-shadow: 0 0 8px #10b981;
+            border-color: #10b981 !important;
+        }
+        .strong-glow-short {
+            box-shadow: 0 0 8px #ef4444;
+            border-color: #ef4444 !important;
         }
     </style>
 </head>
@@ -63,7 +79,7 @@
         <!-- Market Overview -->
         <div class="bg-gray-900 rounded-3xl overflow-hidden border border-gray-700">
             <div class="p-6 border-b border-gray-700 flex items-center justify-between bg-gray-950">
-                <h2 class="text-2xl font-semibold">Market Overview • Top 100 by Market Cap</h2>
+                <h2 class="text-2xl font-semibold">Market Overview • Top 500 by Market Cap</h2>
                 <input type="text" id="search-input" onkeyup="filterTable()" placeholder="Search coins..." 
                        class="bg-gray-800 border border-gray-600 rounded-2xl px-6 py-3 w-80 focus:outline-none focus:border-violet-500">
             </div>
@@ -85,6 +101,9 @@
                     <tbody id="table-body" class="divide-y divide-gray-800 text-sm"></tbody>
                 </table>
             </div>
+
+            <!-- Pagination -->
+            <div class="p-6 border-t border-gray-700 flex justify-center gap-2 flex-wrap" id="pagination"></div>
         </div>
 
         <footer class="text-center text-gray-500 text-xs mt-12">
@@ -108,6 +127,9 @@
 
     <script>
         let allCoins = [];
+        let filteredCoins = [];
+        let currentPage = 1;
+        const coinsPerPage = 100;
         let priceChart = null;
         let currentSort = { col: 3, asc: false };
 
@@ -115,35 +137,47 @@
 
         async function fetchCryptoData() {
             try {
-                const res = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=100&page=1&sparkline=false&price_change_percentage=24h,7d');
-                const data = await res.json();
-                
-                allCoins = data.filter(coin => coin.market_cap > 40000000)
+                let allData = [];
+                // Page 1
+                let res = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&sparkline=false&price_change_percentage=24h');
+                allData = await res.json();
+                // Page 2
+                res = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=2&sparkline=false&price_change_percentage=24h');
+                const page2 = await res.json();
+                allData = allData.concat(page2);
+
+                allCoins = allData.filter(coin => coin.market_cap > 30000000)
                     .map(coin => {
                         const ch = coin.price_change_percentage_24h || 0;
                         coin.rsi = Math.max(25, Math.min(78, 50 + (ch * 1.7) + (Math.random() * 10 - 5)));
                         return coin;
                     });
 
+                filteredCoins = [...allCoins];
+                currentPage = 1;
                 renderHotSections();
-                renderTable(allCoins);
+                renderTable();
+                renderPagination();
             } catch (e) {
                 console.error(e);
+                alert("Could not load full 500. Showing top 250.");
             }
         }
 
         function getSignal(coin) {
             const ch = coin.price_change_percentage_24h || 0;
-            if (ch > 5) return { text: "STRONG LONG", cls: "text-emerald-400 font-bold", isLong: true };
-            if (ch > 2) return { text: "LONG", cls: "text-emerald-400", isLong: true };
-            if (ch < -5) return { text: "STRONG SHORT", cls: "text-red-400 font-bold", isLong: false };
-            if (ch < -2) return { text: "SHORT", cls: "text-red-400", isLong: false };
-            return { text: "NEUTRAL", cls: "text-gray-400", isLong: null };
+            if (ch > 7) return { text: "STRONG LONG", cls: "text-emerald-400 font-bold", isLong: true, isStrong: true };
+            if (ch > 4) return { text: "LONG", cls: "text-emerald-400", isLong: true, isStrong: false };
+            if (ch < -7) return { text: "STRONG SHORT", cls: "text-red-400 font-bold", isLong: false, isStrong: true };
+            if (ch < -4) return { text: "SHORT", cls: "text-red-400", isLong: false, isStrong: false };
+            return { text: "NEUTRAL", cls: "text-gray-400", isLong: null, isStrong: false };
         }
 
         function renderHotSections() {
-            const longs = allCoins.filter(c => getSignal(c).isLong === true).slice(0,8);
-            const shorts = allCoins.filter(c => getSignal(c).isLong === false).slice(0,8);
+            const sorted = [...allCoins].sort((a, b) => Math.abs(b.price_change_percentage_24h || 0) - Math.abs(a.price_change_percentage_24h || 0));
+
+            const longs = sorted.filter(c => getSignal(c).isLong === true).slice(0,8);
+            const shorts = sorted.filter(c => getSignal(c).isLong === false).slice(0,8);
 
             document.getElementById('hot-longs').innerHTML = longs.map(coin => createHotCard(coin, true)).join('');
             document.getElementById('hot-shorts').innerHTML = shorts.map(coin => createHotCard(coin, false)).join('');
@@ -152,8 +186,10 @@
         function createHotCard(coin, isLong) {
             const ch = coin.price_change_percentage_24h || 0;
             const signal = getSignal(coin);
+            const isStrong = signal.isStrong;
+
             return `
-                <div onclick="showCoinDetail('${coin.id}')" class="bg-gray-900 border ${isLong ? 'border-emerald-500/40' : 'border-red-500/40'} rounded-3xl p-6 hover:border-white/50 transition-all cursor-pointer">
+                <div onclick="showCoinDetail('${coin.id}')" class="hot-card bg-gray-900 border ${isLong ? 'border-emerald-500/40' : 'border-red-500/40'} ${isStrong ? (isLong ? 'strong-glow' : 'strong-glow-short') : ''} rounded-3xl p-6 hover:border-white/60 transition-all cursor-pointer">
                     <div class="flex items-center gap-4">
                         <img src="${coin.image}" class="w-12 h-12 rounded-2xl">
                         <div class="flex-1">
@@ -167,24 +203,28 @@
                             <div class="${isLong ? 'text-emerald-400' : 'text-red-400'}">${isLong ? '↑' : '↓'} ${Math.abs(ch).toFixed(1)}%</div>
                         </div>
                         <span class="px-5 py-2 text-sm font-bold rounded-2xl ${isLong ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}">
-                            ${signal.text}
+                            ${signal.text.replace("STRONG ", "")}
                         </span>
                     </div>
                 </div>
             `;
         }
 
-        function renderTable(coins) {
+        function renderTable() {
+            const start = (currentPage - 1) * coinsPerPage;
+            const end = start + coinsPerPage;
+            const pageCoins = filteredCoins.slice(start, end);
+
             const tbody = document.getElementById('table-body');
             tbody.innerHTML = '';
 
-            coins.forEach((coin, idx) => {
+            pageCoins.forEach((coin, idx) => {
                 const signal = getSignal(coin);
                 const ch = coin.price_change_percentage_24h || 0;
                 const row = document.createElement('tr');
                 row.className = `coin-row cursor-pointer hover:bg-gray-800 transition-colors`;
                 row.innerHTML = `
-                    <td class="p-5 text-gray-400">${idx + 1}</td>
+                    <td class="p-5 text-gray-400">${start + idx + 1}</td>
                     <td class="p-5 flex items-center gap-4">
                         <img src="${coin.image}" class="w-9 h-9 rounded-2xl">
                         <div>
@@ -202,6 +242,25 @@
                 row.onclick = () => showCoinDetail(coin.id);
                 tbody.appendChild(row);
             });
+
+            renderPagination();
+        }
+
+        function renderPagination() {
+            const totalPages = Math.ceil(filteredCoins.length / coinsPerPage);
+            const container = document.getElementById('pagination');
+            container.innerHTML = '';
+
+            for (let i = 1; i <= totalPages; i++) {
+                const btn = document.createElement('button');
+                btn.className = `px-4 py-2 mx-1 rounded-xl ${i === currentPage ? 'bg-violet-600 text-white' : 'bg-gray-800 hover:bg-gray-700'}`;
+                btn.textContent = i;
+                btn.onclick = () => {
+                    currentPage = i;
+                    renderTable();
+                };
+                container.appendChild(btn);
+            }
         }
 
         function showCoinDetail(coinId) {
@@ -259,10 +318,11 @@
 
         function filterTable() {
             const term = document.getElementById('search-input').value.toLowerCase();
-            const filtered = allCoins.filter(c => 
+            filteredCoins = allCoins.filter(c => 
                 c.name.toLowerCase().includes(term) || c.symbol.toLowerCase().includes(term)
             );
-            renderTable(filtered);
+            currentPage = 1;
+            renderTable();
         }
 
         function sortTable(col) {
@@ -288,7 +348,9 @@
                 if (index === currentSort.col) th.classList.add(currentSort.asc ? 'sort-asc' : 'sort-desc');
             });
 
-            renderTable(sorted);
+            allCoins = sorted;
+            currentPage = 1;
+            renderTable();
         }
 
         function refreshData() { fetchCryptoData(); }
